@@ -125,6 +125,10 @@ async def envoyer_long(update, texte):
         await update.message.reply_text(morceau)
 
 
+async def commande_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("RADAR NOTIFICATIONS")
+
+
 async def commande_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     numeros = [" ".join(context.args)]
     lignes = [ligne.strip() for ligne in numeros if ligne.strip()]
@@ -211,6 +215,9 @@ async def au_demarrage(app: Application):
 def main():
     app = Application.builder().token(TOKEN).post_init(au_demarrage).build()
 
+    # /start affiche uniquement le nom du service.
+    app.add_handler(CommandHandler("start", commande_start))
+
     # Recherche par commande accessible à tous, y compris dans les groupes.
     app.add_handler(CommandHandler("search", commande_search))
     app.add_handler(CommandHandler("stats", commande_stats))
@@ -223,7 +230,6 @@ def main():
     recherche_privee = proprietaire & filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND
     app.add_handler(MessageHandler(recherche_privee, recevoir_texte))
 
-    # Aucun message /start : la commande est volontairement ignorée.
     app.run_polling()
 
 
