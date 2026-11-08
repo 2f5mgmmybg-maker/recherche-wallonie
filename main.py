@@ -125,21 +125,13 @@ async def envoyer_long(update, texte):
         await update.message.reply_text(morceau)
 
 
-async def commande_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Bonjour 👋\n\n"
-        "• Envoie-moi un numéro de téléphone : je te donne tous les résultats.\n"
-        "• Envoie-moi un fichier Excel (.xlsx) : je l'ajoute à la base.\n"
-        "• /stats : voir combien de données j'ai en mémoire."
-    )
+async def commande_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    numeros = [" ".join(context.args)]
+    lignes = [ligne.strip() for ligne in numeros if ligne.strip()]
+    if not lignes:
+        await update.message.reply_text("Utilisation : /search suivi du numéro de téléphone.")
+        return
 
-
-async def commande_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(await asyncio.to_thread(statistiques))
-
-
-async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lignes = [l.strip() for l in update.message.text.splitlines() if l.strip()]
     reponses = []
     for ligne in lignes[:20]:
         cle = cle_telephone(ligne)
@@ -148,18 +140,47 @@ async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
         resultats = await asyncio.to_thread(chercher, cle)
         if not resultats:
-            reponses.append(f"🔎 {ligne}\nAucun résultat.")
+            reponses.append(f"🔎 {ligne}\\nAucun résultat.")
             continue
         morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
         for n, (nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
             morceaux.append(
-                f"{n}. Nom : {nom or '-'}\n"
-                f"    Prénom : {prenom or '-'}\n"
-                f"    Commune : {commune or '-'}\n"
+                f"{n}. Nom : {nom or '-'}\\n"
+                f"    Prénom : {prenom or '-'}\\n"
+                f"    Commune : {commune or '-'}\\n"
                 f"    (fichier : {fichier}, {date:%d/%m/%Y})"
             )
-        reponses.append("\n".join(morceaux))
-    await envoyer_long(update, "\n\n".join(reponses))
+        reponses.append("\\n".join(morceaux))
+    await envoyer_long(update, "\\n\\n".join(reponses))
+
+
+async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lignes = [l.strip() for l in update.message.text.splitlines() if l.strip()]
+    # En privé, seul le propriétaire peut rechercher sans la commande /search.
+    reponses = []
+    for ligne in lignes[:20]:
+        cle = cle_telephone(ligne)
+        if not cle:
+            reponses.append(f"❓ « {ligne} » n'est pas un numéro valide.")
+            continue
+        resultats = await asyncio.to_thread(chercher, cle)
+        if not resultats:
+            reponses.append(f"🔎 {ligne}\\nAucun résultat.")
+            continue
+        morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
+        for n, (nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
+            morceaux.append(
+                f"{n}. Nom : {nom or '-'}\\n"
+                f"    Prénom : {prenom or '-'}\\n"
+                f"    Commune : {commune or '-'}\\n"
+                f"    (fichier : {fichier}, {date:%d/%m/%Y})"
+            )
+        reponses.append("\\n".join(morceaux))
+    await envoyer_long(update, "\\n\\n".join(reponses))
+
+
+async def commande_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(await asyncio.to_thread(statistiques))
 
 
 async def recevoir_fichier(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -189,12 +210,20 @@ async def au_demarrage(app: Application):
 
 def main():
     app = Application.builder().token(TOKEN).post_init(au_demarrage).build()
-    # Seul ton compte Telegram est écouté, en conversation privée. Les autres sont ignorés.
-    moi = filters.User(user_id=OWNER_ID) & filters.ChatType.PRIVATE
-    app.add_handler(CommandHandler("start", commande_start, filters=moi))
-    app.add_handler(CommandHandler("stats", commande_stats, filters=moi))
-    app.add_handler(MessageHandler(moi & filters.Document.ALL, recevoir_fichier))
-    app.add_handler(MessageHandler(moi & filters.TEXT & ~filters.COMMAND, recevoir_texte))
+
+    # Recherche par commande accessible à tous, y compris dans les groupes.
+    app.add_handler(CommandHandler("search", commande_search))
+    app.add_handler(CommandHandler("stats", commande_stats))
+
+    # Seul le propriétaire peut importer des fichiers Excel, en privé ou en groupe.
+    proprietaire = filters.User(user_id=OWNER_ID)
+    app.add_handler(MessageHandler(proprietaire & filters.Document.ALL, recevoir_fichier))
+
+    # En privé, le propriétaire conserve la recherche par simple envoi du numéro.
+    recherche_privee = proprietaire & filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND
+    app.add_handler(MessageHandler(recherche_privee, recevoir_texte))
+
+    # Aucun message /start : la commande est volontairement ignorée.
     app.run_polling()
 
 
