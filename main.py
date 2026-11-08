@@ -140,18 +140,18 @@ async def commande_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
         resultats = await asyncio.to_thread(chercher, cle)
         if not resultats:
-            reponses.append(f"🔎 {ligne}\\nAucun résultat.")
+            reponses.append(f"🔎 {ligne}\nAucun résultat.")
             continue
         morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
         for n, (nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
             morceaux.append(
-                f"{n}. Nom : {nom or '-'}\\n"
-                f"    Prénom : {prenom or '-'}\\n"
-                f"    Commune : {commune or '-'}\\n"
+                f"{n}. Nom : {nom or '-'}\n"
+                f"    Prénom : {prenom or '-'}\n"
+                f"    Commune : {commune or '-'}\n"
                 f"    (fichier : {fichier}, {date:%d/%m/%Y})"
             )
-        reponses.append("\\n".join(morceaux))
-    await envoyer_long(update, "\\n\\n".join(reponses))
+        reponses.append("\n".join(morceaux))
+    await envoyer_long(update, "\n\n".join(reponses))
 
 
 async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,18 +165,18 @@ async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
         resultats = await asyncio.to_thread(chercher, cle)
         if not resultats:
-            reponses.append(f"🔎 {ligne}\\nAucun résultat.")
+            reponses.append(f"🔎 {ligne}\nAucun résultat.")
             continue
         morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
         for n, (nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
             morceaux.append(
-                f"{n}. Nom : {nom or '-'}\\n"
-                f"    Prénom : {prenom or '-'}\\n"
-                f"    Commune : {commune or '-'}\\n"
+                f"{n}. Nom : {nom or '-'}\n"
+                f"    Prénom : {prenom or '-'}\n"
+                f"    Commune : {commune or '-'}\n"
                 f"    (fichier : {fichier}, {date:%d/%m/%Y})"
             )
-        reponses.append("\\n".join(morceaux))
-    await envoyer_long(update, "\\n\\n".join(reponses))
+        reponses.append("\n".join(morceaux))
+    await envoyer_long(update, "\n\n".join(reponses))
 
 
 async def commande_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
