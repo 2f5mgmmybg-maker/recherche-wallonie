@@ -126,6 +126,7 @@ async def envoyer_long(update, texte):
 
 
 async def commande_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log.info("Commande /start exécutée : accueil RADAR NOTIFICATIONS")
     await update.message.reply_text("RADAR NOTIFICATIONS")
 
 
