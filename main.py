@@ -64,10 +64,9 @@ def importer(nom_fichier, contenu):
     lignes, ignorees, feuilles_ok, feuilles_ko = lire_excel(contenu)
     if not lignes:
         return (
-            "❌ Je n'ai trouvé aucune donnée dans ce fichier.\n"
-            "Il faut une ligne de titres avec une colonne pour le téléphone "
-            "(Téléphone, Tel, GSM…) et une colonne Nom ou Prénom. "
-            "Colonne Commune en plus si possible."
+            "❌ Je n'ai trouvé aucun numéro de téléphone reconnaissable.\n"
+            "Les titres de colonnes ne sont pas obligatoires : vérifie que les cellules contiennent bien des numéros de téléphone belges ou internationaux. "
+            "Si le fichier utilise un format inhabituel, envoie-moi un exemple de quelques lignes (sans données personnelles)."
         )
 
     with db() as conn:
