@@ -1,8 +1,7 @@
-""""Lecture Excel avec détection des colonnes par leur contenu, même sans en-têtes."""
+"""Lecture Excel avec détection des colonnes par leur contenu, même sans en-têtes."""
 import io
 import re
 import unicodedata
-from collections import Counter
 
 from openpyxl import load_workbook
 
@@ -90,7 +89,7 @@ def _inferer_colonnes(lignes_brutes):
         if not valeurs:
             continue
         tel = sum(_telephone_valide(v) for v in valeurs)
-        if tel >= 2 and tel / len(valeurs) >= 0.55:
+        if tel >= 1 and tel / len(valeurs) >= 0.55:
             telephone_scores.append((tel / len(valeurs), tel, i))
         humains = [v for v in valeurs if _texte_humain(v)]
         if len(humains) >= 2 and len(humains) / len(valeurs) >= 0.65:
@@ -131,8 +130,6 @@ def _inferer_colonnes(lignes_brutes):
         profils.sort()
         colonnes["prenom"] = profils[0][2]
         colonnes["nom"] = profils[1][2]
-        if len(profils) >= 3:
-            colonnes["commune"] = profils[2][2]
     return colonnes
 
 
