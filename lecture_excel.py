@@ -1,23 +1,36 @@
-"""Lecture Excel avec détection des colonnes par leur contenu, même sans en-têtes."""
+"""Import Excel sans en-têtes : A=genre, B=nom, C=prénom, reste détecté automatiquement."""
+import difflib
 import io
+import json
 import re
 import unicodedata
+import urllib.request
 
 from openpyxl import load_workbook
 
+_API_COMMUNES = "https://www.odwb.be/api/explore/v2.1/catalog/datasets/communes_s3/records?limit=300"
+_COMMUNES = None
+
 
 def simplifier(texte):
-    t = unicodedata.normalize("NFD", str(texte))
+    t = unicodedata.normalize("NFD", str(texte or ""))
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
     return re.sub(r"[^a-z0-9]", "", t.lower())
 
 
-def cle_telephone(valeur):
+def texte_propre(valeur):
     if valeur is None:
         return ""
     if isinstance(valeur, float) and valeur.is_integer():
         valeur = int(valeur)
-    chiffres = re.sub(r"\D", "", str(valeur))
+    return re.sub(r"\s+", " ", str(valeur)).strip()
+
+
+def cle_telephone(valeur):
+    if valeur is None or isinstance(valeur, bool):
+        return ""
+    brut = str(int(valeur)) if isinstance(valeur, float) and valeur.is_integer() else str(valeur)
+    chiffres = re.sub(r"\D", "", brut)
     if chiffres.startswith("00"):
         chiffres = chiffres[2:]
     if chiffres.startswith("32") and len(chiffres) >= 10:
@@ -26,173 +39,123 @@ def cle_telephone(valeur):
     return chiffres if 7 <= len(chiffres) <= 10 else ""
 
 
-def texte_propre(valeur):
-    if valeur is None:
-        return ""
-    if isinstance(valeur, float) and valeur.is_integer():
-        valeur = int(valeur)
-    return str(valeur).strip()
-
-
-def type_colonne(entete):
-    h = simplifier(entete) if entete is not None else ""
-    if not h:
-        return None
-    if "prenom" in h or "firstname" in h or h == "first":
-        return "prenom"
-    if any(m in h for m in ("commune", "ville", "localite", "city", "municipalite", "postal", "codepostal")):
-        return "commune"
-    if any(m in h for m in ("tel", "gsm", "mobile", "portable", "phone")) or h in ("numero", "num", "number"):
-        return "tel"
-    if h.startswith("nom") or h in ("lastname", "surname", "name", "nomdefamille"):
-        return "nom"
-    return None
-
-
-def _case(ligne, i):
-    return ligne[i] if i is not None and i < len(ligne) else None
-
-
 def _telephone_valide(valeur):
-    if valeur is None or isinstance(valeur, bool):
-        return False
-    brut = str(int(valeur)) if isinstance(valeur, float) and valeur.is_integer() else str(valeur)
-    chiffres = re.sub(r"\D", "", brut)
-    if chiffres.startswith("00"):
-        chiffres = chiffres[2:]
-    if chiffres.startswith("32"):
-        chiffres = chiffres[2:]
-    chiffres = chiffres.lstrip("0")
-    return 7 <= len(chiffres) <= 10
+    return bool(cle_telephone(valeur))
 
 
-def _texte_humain(valeur):
-    if not isinstance(valeur, str):
-        return False
-    v = valeur.strip()
-    if len(v) < 2 or len(v) > 60 or re.search(r"\d", v):
-        return False
-    mots = re.findall(r"[A-Za-zÀ-ÿ'’-]+", v)
-    return 1 <= len(mots) <= 4 and len("".join(mots)) >= 2
+def _charger_communes():
+    """Charge le référentiel public UVCW/ODWB; garde le bot utilisable si l'API est indisponible."""
+    global _COMMUNES
+    if _COMMUNES is not None:
+        return _COMMUNES
+    _COMMUNES = {}
+    try:
+        req = urllib.request.Request(_API_COMMUNES, headers={"User-Agent": "recherche-wallonie/1.0"})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        for record in data.get("results", []):
+            nom = texte_propre(record.get("nom"))
+            court = texte_propre(record.get("nom_court"))
+            if nom:
+                _COMMUNES[simplifier(nom)] = nom
+            if court:
+                _COMMUNES[simplifier(court)] = nom or court
+    except Exception:
+        # Pas de correction hasardeuse si la source officielle est indisponible.
+        pass
+    return _COMMUNES
 
 
-def _inferer_colonnes(lignes_brutes):
-    """Retourne les colonnes probables par examen des valeurs, sans supposer leur ordre."""
-    if not lignes_brutes:
-        return None
+def corriger_commune(valeur):
+    brut = texte_propre(valeur)
+    if not brut:
+        return ""
+    communes = _charger_communes()
+    cle = simplifier(brut)
+    if not communes:
+        return brut
+    if cle in communes:
+        return communes[cle]
+    if len(cle) < 4:
+        return brut
+    candidat = difflib.get_close_matches(cle, communes.keys(), n=1, cutoff=0.84)
+    return communes[candidat[0]] if candidat else brut
 
-    largeur = max((len(r) for r in lignes_brutes), default=0)
-    telephone_scores = []
-    textes = []
-    for i in range(largeur):
-        valeurs = [r[i] for r in lignes_brutes if i < len(r) and r[i] not in (None, "")]
+
+def _case(ligne, index):
+    return ligne[index] if index is not None and index < len(ligne) else None
+
+
+def _genre(valeur):
+    return texte_propre(valeur)
+
+
+def _inferer_colonnes_supplementaires(lignes):
+    """Repère le téléphone et la commune dans D et les colonnes suivantes."""
+    largeur = max((len(r) for r in lignes), default=0)
+    telephone, commune = None, None
+    meilleur_tel, meilleur_commune = 0.0, 0.0
+    communes = _charger_communes()
+
+    for index in range(3, largeur):
+        valeurs = [r[index] for r in lignes if index < len(r) and texte_propre(r[index])]
         if not valeurs:
             continue
-        tel = sum(_telephone_valide(v) for v in valeurs)
-        if tel >= 1 and tel / len(valeurs) >= 0.55:
-            telephone_scores.append((tel / len(valeurs), tel, i))
-        humains = [v for v in valeurs if _texte_humain(v)]
-        if len(humains) >= 2 and len(humains) / len(valeurs) >= 0.65:
-            textes.append((len(humains) / len(valeurs), len(humains), i, humains))
+        score_tel = sum(_telephone_valide(v) for v in valeurs) / len(valeurs)
+        if score_tel >= 0.55 and score_tel > meilleur_tel:
+            telephone, meilleur_tel = index, score_tel
 
-    if not telephone_scores:
-        return None
-    telephone_scores.sort(reverse=True)
-    tel_col = telephone_scores[0][2]
+        if communes:
+            score_commune = sum(
+                1 for v in valeurs
+                if simplifier(v) in communes or (
+                    len(simplifier(v)) >= 4 and
+                    bool(difflib.get_close_matches(simplifier(v), communes.keys(), n=1, cutoff=0.84))
+                )
+            ) / len(valeurs)
+            if score_commune >= 0.50 and score_commune > meilleur_commune:
+                commune, meilleur_commune = index, score_commune
 
-    # Les champs texte sont facultatifs. On ne les attribue que si leur contenu
-    # est clairement textuel ; en cas de doute, les numéros restent importables.
-    textes = [t for t in textes if t[2] != tel_col]
-    colonnes = {"tel": [tel_col], "nom": None, "prenom": None, "commune": None}
-
-    # Détecter les communes grâce à des codes postaux belges lorsqu'ils existent
-    # dans une colonne voisine : la valeur texte associée est alors la commune.
-    codes_postaux = set()
-    for r in lignes_brutes:
-        for v in r:
-            s = str(v).strip() if v is not None else ""
-            if re.fullmatch(r"\d{4}", s) and 1000 <= int(s) <= 9999:
-                codes_postaux.add(s)
-    # Sans dictionnaire géographique ni en-tête, une commune et un nom peuvent
-    # être indiscernables : conserver les colonnes textuelles restantes sans
-    # inventer de correspondance sémantique.
-    if len(textes) == 1:
-        colonnes["nom"] = textes[0][2]
-    elif len(textes) >= 2:
-        # Le prénom est généralement une seule courte expression ; le nom peut
-        # comporter plusieurs mots. Si le profil ne les distingue pas, garder
-        # le premier champ comme nom et le second comme prénom.
-        profils = []
-        for score, count, idx, vals in textes:
-            moyenne_mots = sum(len(re.findall(r"[A-Za-zÀ-ÿ'’-]+", v)) for v in vals) / len(vals)
-            moyenne_longueur = sum(len(v.strip()) for v in vals) / len(vals)
-            profils.append((moyenne_mots, moyenne_longueur, idx))
-        profils.sort()
-        colonnes["prenom"] = profils[0][2]
-        colonnes["nom"] = profils[1][2]
-    return colonnes
+    return telephone, commune
 
 
 def lire_excel(contenu):
-    """Lit toutes les feuilles .xlsx, avec ou sans ligne de titres.
-
-    Renvoie (lignes, ignorees, feuilles_ok, feuilles_ko).
-    Une feuille sans titres est analysée par le contenu des cellules.
+    """Renvoie (lignes, ignorees, feuilles_ok, feuilles_ko).
+    Chaque ligne importée vaut (clé_tel, tel_origine, genre, nom, prénom, commune).
+    Aucune ligne d'en-tête n'est attendue : A/B/C sont toujours genre/nom/prénom.
     """
     classeur = load_workbook(io.BytesIO(contenu), read_only=True, data_only=True)
     lignes, ignorees, feuilles_ok, feuilles_ko = [], 0, [], []
 
-    for feuille in classeur.worksheets:
-        donnees = [tuple(texte_propre(v) if v is not None else None for v in row)
-                   for row in feuille.iter_rows(values_only=True)]
-        donnees = [r for r in donnees if any(v not in (None, "") for v in r)]
-        if not donnees:
-            feuilles_ko.append(feuille.title)
-            continue
+    try:
+        for feuille in classeur.worksheets:
+            donnees = [
+                tuple(texte_propre(v) if v is not None else "" for v in row)
+                for row in feuille.iter_rows(values_only=True)
+            ]
+            donnees = [r for r in donnees if any(v != "" for v in r)]
+            if not donnees:
+                feuilles_ko.append(feuille.title)
+                continue
 
-        colonnes = None
-        debut = 0
-        # Chercher des en-têtes dans les dix premières lignes, sans exiger
-        # qu'ils soient sur la première ligne.
-        for pos, row in enumerate(donnees[:10]):
-            types = [type_colonne(v) for v in row]
-            if "tel" in types and ("nom" in types or "prenom" in types):
-                colonnes = {
-                    "tel": [i for i, t in enumerate(types) if t == "tel"],
-                    "nom": types.index("nom") if "nom" in types else None,
-                    "prenom": types.index("prenom") if "prenom" in types else None,
-                    "commune": types.index("commune") if "commune" in types else None,
-                }
-                debut = pos + 1
-                break
+            tel_col, commune_col = _inferer_colonnes_supplementaires(donnees[:min(200, len(donnees))])
+            if tel_col is None:
+                feuilles_ko.append(feuille.title)
+                continue
 
-        if colonnes is None:
-            # Examiner un échantillon de lignes, puis traiter toutes les lignes
-            # comme des données : aucune ligne n'est supprimée comme titre.
-            colonnes = _inferer_colonnes(donnees[:min(len(donnees), 100)])
-            debut = 0
+            feuilles_ok.append(feuille.title)
+            for row in donnees:
+                brut_tel = _case(row, tel_col)
+                cle = cle_telephone(brut_tel)
+                if not cle:
+                    ignorees += 1
+                    continue
+                genre = _genre(_case(row, 0))
+                nom = texte_propre(_case(row, 1))
+                prenom = texte_propre(_case(row, 2))
+                commune = corriger_commune(_case(row, commune_col)) if commune_col is not None else ""
+                lignes.append((cle, texte_propre(brut_tel), genre, nom, prenom, commune))
+    finally:
+        classeur.close()
 
-        if colonnes is None:
-            feuilles_ko.append(feuille.title)
-            continue
-
-        feuilles_ok.append(feuille.title)
-        for row in donnees[debut:]:
-            ajoutees = 0
-            for i in colonnes["tel"]:
-                brut = _case(row, i)
-                cle = cle_telephone(brut)
-                if cle:
-                    lignes.append((
-                        cle,
-                        texte_propre(brut),
-                        texte_propre(_case(row, colonnes["nom"])),
-                        texte_propre(_case(row, colonnes["prenom"])),
-                        texte_propre(_case(row, colonnes["commune"])),
-                    ))
-                    ajoutees += 1
-            if not ajoutees:
-                ignorees += 1
-
-    classeur.close()
     return lignes, ignorees, feuilles_ok, feuilles_ko
