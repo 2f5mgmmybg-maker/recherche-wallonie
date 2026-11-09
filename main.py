@@ -177,7 +177,8 @@ async def recevoir_texte(update: Update, context: ContextTypes.DEFAULT_TYPE):
         morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
         for n, (genre, nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
             morceaux.append(
-                f"{n}. Nom : {nom or '-'}\n"
+                f"{n}. Genre : {genre or '-'}\n"
+                f"    Nom : {nom or '-'}\n"
                 f"    Prénom : {prenom or '-'}\n"
                 f"    Commune : {commune or '-'}\n"
                 f"    (fichier : {fichier}, {date:%d/%m/%Y})"
