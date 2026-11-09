@@ -41,9 +41,11 @@ def preparer_base():
                 tel_origine TEXT,
                 nom TEXT,
                 prenom TEXT,
-                commune TEXT
+                commune TEXT,
+                genre TEXT
             )"""
         )
+        conn.execute("ALTER TABLE personnes ADD COLUMN IF NOT EXISTS genre TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_personnes_tel ON personnes (tel_cle)")
 
 
@@ -76,8 +78,8 @@ def importer(nom_fichier, contenu):
         ).fetchone()[0]
         with conn.cursor() as cur:
             cur.executemany(
-                "INSERT INTO personnes (import_id, tel_cle, tel_origine, nom, prenom, commune) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "INSERT INTO personnes (import_id, tel_cle, tel_origine, genre, nom, prenom, commune) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 [(import_id, *ligne) for ligne in lignes],
             )
         total = conn.execute("SELECT count(*) FROM personnes").fetchone()[0]
@@ -93,7 +95,7 @@ def importer(nom_fichier, contenu):
 def chercher(cle):
     with db() as conn:
         return conn.execute(
-            """SELECT p.nom, p.prenom, p.commune, i.nom_fichier, i.importe_le
+            """SELECT p.genre, p.nom, p.prenom, p.commune, i.nom_fichier, i.importe_le
                FROM personnes p JOIN imports i ON i.id = p.import_id
                WHERE p.tel_cle = %s
                ORDER BY i.importe_le, p.id""",
@@ -147,7 +149,7 @@ async def commande_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reponses.append(f"🔎 {ligne}\nAucun résultat.")
             continue
         morceaux = [f"🔎 {ligne} : {len(resultats)} résultat(s)"]
-        for n, (nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
+        for n, (genre, nom, prenom, commune, fichier, date) in enumerate(resultats, 1):
             morceaux.append(
                 f"{n}. Nom : {nom or '-'}\n"
                 f"    Prénom : {prenom or '-'}\n"
